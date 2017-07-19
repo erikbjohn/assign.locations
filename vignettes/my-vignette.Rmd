@@ -17,27 +17,24 @@ Vignettes are long form documentation commonly included in packages. Because the
 
 ## Vignette Info
 
-```{r}
+```{r, eval=FALSE}
 library(data.table)
 library(parcels)
 library(outlines)
 library(geocodes.bad)
-pkg.data.path <- '~/Dropbox/pkg.data/'
+library(pkg.data.paths)
+# Define paths
+pkg.data.root <- '~/Dropbox/pkg.data' # devtools::install_github('erikbjohn/pkg.data.paths')
+
 # Load package address data
-parcels.address <- parcels::address(paste0(pkg.data.path, 'parcels'))
-outlines.address <- outlines::address(paste0(pkg.data.path, 'outlines'))
-points.address <- points::address(paste0(pkg.data.path, 'points'))
-gecodes.bad.address <- geocodes.bad::address(paste0(pkg.data.path, 'geocodes.bad'))
-l.address <- list(parcels=parcels.address, points=points.address,
-                  outlines=outlines.address, geocodes.bad=geocodes.bad.address)
+
 # Load package shape data
 parcels.shapes <- parcels::shapes(paste0(pkg.data.path, 'parcels'))
 outlines.shapes <- outlines::shapes(paste0(pkg.data.path, 'outlines'))
-points.shapes <- points::shapes(paste0(pkg.data.path, 'points'))
-gecodes.bad.shapes <- geocodes.bad::shapes(paste0(pkg.data.path, 'geocodes.bad'))
 l.shapes <- list(parcels=parcels.shapes, points=points.shapes,
                   outlines=outlines.shapes, geocodes.bad=geocodes.bad.shapes)
 
+# Load mmed data
 sDateStamp <- '20101215'
 source <- paste0('mmed.', sDateStamp)
 
@@ -52,15 +49,19 @@ rawData <- unique(rawData)
 rawData <- rawData[, date.snapshot := as.Date(sDateStamp, format='%Y%m%d')]
 
 # Clean license.type
-rawData <- rawData[, lic.type := funScrape.clean.lic.type(lic.type)]
+rawData <- rawData[, lic.type := methods.string::clean.lic.type(lic.type)]
 
 ## Subset
 rawData$type <- 'Medical'
 match.threshold=0.6
 
-## Create study Geography
-load(paste0(pkg.data.path,'study.extent/study.extent.rdata'))
+study.cities <- 'Denver'
+parcels.address <- parcels::address(dt.pkg.data[pkg.name=='parcels']$pkg.root[1])
+study.zips <- unique(parcels.address[city %in% study.cities]$zip)
+study.zips <- study.zips[study.zips!='']
+study.states <- unique(parcels.address[city %in% study.cities]$state)
+l.study.extent <- list(zips = study.zips, cities=study.cities, states = study.states)
 
-lookup.address <- 
-rawData <- funImport(rawData, source, match.threshold=0.6, lookup.address=, study.extent=NULL, pkg.data.path)
+## Create study Geography
+rawData <- funImport(rawData, source, match.threshold=0.6, l.study.extent=NULL, pkg.data.root, l.study.extent)
 ```

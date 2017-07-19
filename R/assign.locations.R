@@ -5,9 +5,8 @@
 #' See the Vignette in the future
 #'
 #' @docType package
-#' @name parcels
+#' @name assign.locations
 #' @importFrom dplyr %>% select
-#' @importFrom data.table :=
 NULL
 
 ## quiets concerns of R CMD check re: the .'s that appear in pipelines
@@ -18,8 +17,9 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #' @description Assigns address to shapes
 #' @param D raw data with all fields
 #' @param source data source name
-#' @param match.threshold string match qualityy
-#' @param lookup.address used to fill missing zip and city from parcels.address (optional)
+#' @param match.threshold string match quality
+#' @param l.study.extent list with cities, zips, states
+#' @param pkg.data.root path to dropbox pkg.data root
 #' @keywords parcels, clean
 #' @export
 #' @import stringr
@@ -27,10 +27,22 @@ if(getRversion() >= "2.15.1")  utils::globalVariables(c("."))
 #'     stringdist
 #'     methods.string
 #'     foreign
-funImport <- function(D, source='', match.threshold=0.6, lookup.address=NULL, study.extent=NULL,
-                      pkg.data.path, l.address){
+#'     parcels
+#'     pkg.data.paths
+funImport <- function(D, source='', match.threshold=0.6, l.study.extent=NULL,
+                      pkg.data.root = NULL){
+  pkg.name <- pkg.data.path <- address.id <- NULL
+  # Build the substrate
+  l.address <- fun.l.address(pkg.data.root)
   l <- list(); mgs.list <- list(); l$D <- D;
   l$source <- source; l$match.threshold<-match.threshold
+  if (is.null(l.study.extent)){
+    dt.pkg.data <- pkg.data.paths::dt(pkg.data.root)
+    parcels.address <- parcels::address(dt.pkg.data[pkg.name=='parcels']$pkg.root[1])
+    l.study.extent <- list(cities=unique(parcels.address$city), zips = unique(parcels.address$zip),
+                           states=unique(parcels.address$state))
+  }
+  if (is.null(pkg.data.root)) stop(paste('No pkg.data.root defined'))
   # Generate checklis
   check <- funImport.check.list(l$D)
   # Break clean if any of these condtions are true
@@ -42,8 +54,8 @@ funImport <- function(D, source='', match.threshold=0.6, lookup.address=NULL, st
   # Define address ids
   l$D <- funImport.address.ids(l$D)
   l$data <- funImport.data(l) # Retains record.id specific info
-  l$address <- funImport.address(l$D) # Cleans and formats address for location assignment
-  l$location <- funImport.locations(l, match.threshold, study.extent, pkg.data.path, l.address) # Assigns address to parcel, outline, point
+  l$address <- funImport.address(l$D, lookup.address=l.address$parcels) # Cleans and formats address for location assignment
+  l$location <- funImport.locations(l, match.threshold, l.study.extent, pkg.data.path) # Assigns address to parcel, outline, point
   setkey(l$data, address.id)
   setkey(l$address, address.id)
   DT <- l$data[l$address]
@@ -65,6 +77,7 @@ funImport <- function(D, source='', match.threshold=0.6, lookup.address=NULL, st
 #' @import stringr
 #'     data.table
 funImport.check.list <- function(x){
+  pkg.name <- pkg.data.path <- address.id <- NULL
   l <- list()
   l$location.id <- ('location.id' %in% names(x))
   l$data.id <- ('data.id' %in% names(x))
@@ -91,13 +104,16 @@ funImport.check.list <- function(x){
 #'     data.table
 #'     methods.string
 #'     parcels
-funImport.address <- function(x, lookup.address){
+#'     stats
+funImport.address <- function(x, lookup.address=NULL){
+  city <- state <- zip <- geocode.id <- address.id <- address.cols <- NULL
+  l <- na.omit <- address.id <- pkg.name <- NULL
+  street.num.temp <- NULL
   regex.address <- '(?i)(^|.*.)address($|.*.)'
   regex.geo <- paste0('(?i)(^)(',paste0(c('city', 'state', 'zip', 'street', 'unit','cityStateZip'),collapse='|'),')($)|',regex.address)
   cols <- names(x)[str_detect(names(x), regex(regex.geo, perl=TRUE))]
   x <- x[,(cols),with=FALSE]
   x <- unique(x, by='address.id')
-  
   # Formats for names from columns
   check <- funImport.check.list(x)
   # Build the street info
@@ -124,16 +140,20 @@ funImport.address <- function(x, lookup.address){
       if (check$zip==FALSE) x$zip <- ''
     }
     if (check$address==TRUE){ # What is address (think it is full 134 45th street, denver, co 402389)
-      address.cols <- na.omit(str_extract(names(x), regex(regex.address, perl=TRUE)))
+      address.cols <- stats::na.omit(str_extract(names(x), regex(regex.address, perl=TRUE)))
       address.col <- names(which.max(lapply(x[,(address.cols),with=FALSE], function(y) length(na.omit(y)))))[1]
       address <- methods.string::explode.cityStateZip(x[, address.col, with=FALSE])
       if (check$city==FALSE) x$city <- address$city
       if (check$state==FALSE) x$state <- address$state
       if (check$zip==FALSE) x$zip <-address$zip
     }
-    if (!(is.null(lookup.address))){
-      x <- methods.string::fill.missing.zip.city(x, lookup.address)
-    }
+    if(check$state==FALSE){
+      dt.states <- methods.string::fill.missing.state(x)
+      setkey(x, address.id)
+      x <- dt.states[x]
+    } 
+    check <- funImport.check.list(x)
+    #x <- try(methods.string::fill.missing.zip.city(x, lookup.address))
   }
   x$zip <- methods.string::extract.zip(x$zip)
   x$city <- methods.string::clean.city(x$city)
@@ -141,7 +161,9 @@ funImport.address <- function(x, lookup.address){
     dt.states <- methods.string::fill.missing.state(x)
     setkey(x, address.id)
     x <- dt.states[x]
-  } else {
+  }
+  check <- funImport.check.list(x)
+  if(check$state==TRUE){
     x$state <- methods.string::extract.state(x$state)
   }
   return(x)
@@ -149,7 +171,7 @@ funImport.address <- function(x, lookup.address){
 #' @title funImport.data
 #'
 #' @description checks to see what data fields are being used
-#' @param x data.table
+#' @param l list of data
 #' @keywords check, import, spatial
 #' @export
 #' @import stringr
@@ -194,6 +216,7 @@ funImport.data <- function(l){
 #' @import stringr
 #'     data.table
 funImport.address.ids <- function(x){
+  address.id <- NULL
   regex.address <- '(?i)(^|.*.)address($|.*.)'
   regex.geo <- paste0('(?i)(^)(',paste0(c('city', 'state', 'zip', 'street', 'unit','cityStateZip'),collapse='|'),')($)|',regex.address)
   cols <- names(x)[str_detect(names(x), regex(regex.geo, perl=TRUE))]
@@ -204,25 +227,50 @@ funImport.address.ids <- function(x){
 #'
 #' @description assigns address to locations (shapefiles)
 #' @param l list with all location data.tables
+#' @param match.threshold string matching criteria
+#' @param l.study.extent cities, zips, states
+#' @param pkg.data.root dropbox pkg root
 #' @keywords assign, location, import
 #' @export
 #' @import stringr
 #'     data.table
 #'     methods.string
-funImport.locations <- function(l, match.threshold, study.extent=NULL, pkg.data.path, l.address){
+funImport.locations <- function(l, match.threshold, l.study.extent, pkg.data.root){
+  file.name <- street <- zip <- city <- NULL
+  source(pkg.data.paths::dt(pkg.data.root)[file.name=='api.key.R']$sys.path)
+  api.key <- api.key()
   address <- l$address
   address.ids <- address$address.id
-  if (!(is.null(study.extent))){
-    address <- address[zip %in% study.extent$zips | city %in% study.extent$cities]
+  if (!(is.null(l.study.extent))){
+    address <- address[zip %in% l.study.extent$zips | city %in% l.study.extent$cities]
   }
   address <- address[!(is.na(street))]
-  locs <- funUpdate.locs(address, match.threshold, pkg.data.path, l.address)
-  locs <- funImport.location.geocode(locs, address, api.key, l$source)
-  locs <- funImport.location.intersect(locs, address, l$source)
+  locs <- funUpdate.locs(address, match.threshold, pkg.data.root)
+  locs <- funImport.location.geocode(locs, address, pkg.data.root, api.key, l.study.extent, l$source)
+  locs <- funImport.location.intersect(locs, address, pkg.data.root, l$source)
   return(locs)
 }
-
+#' @title funImport.location.address
+#'
+#' @description string matches address (x) to shapefiles address
+#' @param l.location points, parcels, geocodes.bad, outlines
+#' @param x the address file (to be assigned to l.locations)
+#' @keywords assign location import
+#' @export
+#' @import stringr
+#'     data.table
+#'     methods.string
+#'     tidyr
 funImport.location.address <- function(l.location, x){
+  street.num.range <- street.num <- street.num.low <- street.num.hi <- NULL
+  data.street.num <- data.street.direction <- street.direction.prefix <- NULL
+  combn <- data.num.max <- address.id <- location.id <- DT.geo <- NULL
+  match.score <- location.street.direction <- location.source <- NULL
+  match.cols.n <- match.score <- location.street.direction <- NULL
+  street.body <- max.score <- location.match.score <- street <- NULL
+  i.comb <- location.street.num <- city <- state <- zip <- NULL
+  geocode.id <- adddress.id <- street.num.temp <- NULL
+  
   # data: costar.adddress, mmed, etc.
   # locations: parcel.address, point.address
   cat(paste('Assigning', l.location$type), sep='\n')
@@ -315,14 +363,9 @@ funImport.location.address <- function(l.location, x){
     cols <- c(cols,
               names(DT)[!(names(DT) %in% c(cols, 'data.street.direction', 'match.cols.n','match.score', 'i.comb', 'max.score', 'location.type'))])
     DT <- DT[, (cols), with=FALSE]
-    if (!file.exists(DT.cols.location)){
-      DT.cols <- names(DT)
-      save(DT.cols, file=DT.cols.location)
-    }
   }
   # Add in missing if bad geocode (may happen if bad address and missing fields)
   if (l.location$type == "geocodes.bad") {
-    load(DT.cols.location)
     geocodes.bad <- l.location$address[, .(street,city,state,zip,geocode.id=location.id, location.source)]
     setkey(geocodes.bad, street, city, state, zip)
     setkey(x, street, city, state, zip)
@@ -350,10 +393,34 @@ funImport.location.address <- function(l.location, x){
   }
   return(DT)
 }
-funImport.location.geocode <- function(locs, address, api.key, location.source){
-  points.address <- funPoints.address()
+#' @title funImport.location.geocode
+#'
+#' @description string matches address (x) to shapefiles address
+#' @param locs table showing what shapes the address.ids are associated with
+#' @param address data to be assigned
+#' @param pkg.data.root source dropbox data
+#' @param api.key google api key
+#' @param l.study.extent cities, zips, states
+#' @param location.source source data mmed.1348998
+#' @keywords assign location import
+#' @export
+#' @import stringr
+#'     data.table
+#'     methods.string
+#'     points
+funImport.location.geocode <- function(locs, address, pkg.data.root, api.key, l.study.extent, location.source){
+  pkg.name <- location.id <- street.num <- address.num.low <- address.num.hi <- address.address.id <- NULL
+  street.num.low <- street.num.hi <- locs.address.id <- NULL
+  geocode.n <- location.type <- city <- street <- NULL
+  DT.geo <- match.threshold <- pkg.name <- cityStreetZip <- pkg.data.root <- NULL
+  address.id <- NULL
+  dt.pkg.data <- pkg.data.paths::dt(path.root = pkg.data.root)
+  points.address <- points::address(dt.pkg.data[pkg.name=='points']$sys.path)
+  states.abbrev <- names(table(address$state))[table(address$state)/nrow(address) > 0.5 & names(table(address$state)) != ""]
   funCheck.geocode.ids <- function(locs, address){
-    points.address <- funPoints.address()
+    pkg.name <- location.type <- address.id <- address.address.id <- address.num.low <- NULL
+    address.num.hik <- street.num.range <- street.num.points.address <- NULL
+    points.address <- points::address(dt.pkg.data[pkg.name=='points']$sys.path)
     check.ids <- list()
     locs.points <- locs[location.type=='points']
     check.ids$bad <- sort(locs[location.type=='geocodes.bad', address.id])
@@ -408,27 +475,28 @@ funImport.location.geocode <- function(locs, address, api.key, location.source){
         DT.geo.point.unique <- DT.geo.point$street.num.low==DT.geo.point$street.num.hi
         # Only one street number
         if (DT.geo.point.unique){
-          DT.geos <- funGeocode(DT.geo.point, api.key, location.source)
+          DT.geos <- geocode::geocode(pkg.data.root, DT.geo.point, api.key, location.source,  l.study.extent)
         } else { # Range of street numbers
           DT.geo.list <- list()
           DT.geo.low <- copy(DT.geo.point[, street.num:=street.num.low])
           DT.geo.high <- copy(DT.geo.point[, street.num:=street.num.hi])
-          DT.geo.list$low <- funGeocode(DT.geo.low, api.key, location.source)
-          DT.geo.list$high <- funGeocode(DT.geo.high, api.key, location.source)
+          DT.geo.list$low <- geocode::geocode(pkg.data.root, DT.geo.low, api.key, location.source, l.study.extent)
+          DT.geo.list$high <- geocode::geocode(pkg.data.root, DT.geo.high, api.key, location.source, l.study.extent)
           
           num.range <- unlist(DT.geo.point[,.(street.num.low, street.num.hi)])
           nums <- seq(num.range[1], num.range[2])
           nums <- nums[!(nums %in% num.range)]
-          nums <- unique(sort(sample(nums, min(10, length(nums)))))
+          nums.n <- length(nums)
+          nums.inds <- unique(sample(1:nums.n, size = 10, replace=TRUE))
+          nums <- nums[nums.inds]
           loc.match <- FALSE
           iter <- 0
           i.hi <- length(nums)
           i.low <- 1
           end.loc <- c(0,0)
-          
           while (iter <= length(nums) & loc.match==FALSE){
-            start.loc <- end.loc
             iter <- iter+1
+            start.loc <- nums[iter]
             if(iter %% 2 == 0){
               i <- i.hi
               i.hi <- i.hi - 1
@@ -437,8 +505,8 @@ funImport.location.geocode <- function(locs, address, api.key, location.source){
               i.low <- i.low + 1
             }
             DT.temp <- DT.geo.point[, street.num:=nums[i]]
-            DT.geo.list[[iter+2]] <- funGeocode(DT.temp, api.key, location.source)
-            end.loc <- unlist(DT.geo[,.(long,lat)])
+            DT.geo.list[[iter+2]] <- geocode::geocode(pkg.data.root, DT.temp, api.key, location.source, l.study.extent)
+            end.loc <- nums[i]
             if (iter==1){
               loc.match == FALSE
             } else {
@@ -448,27 +516,47 @@ funImport.location.geocode <- function(locs, address, api.key, location.source){
           DT.geos <- rbindlist(DT.geo.list, use.names=TRUE, fill=TRUE)
         }
       } else {
-        geocodes.bad.address <- funGeocodes.bad.address(geocodes.bad.address.new = DT.geo.point, location.source)
+        geocodes.bad.address <- geocode::geocodes.bad.address(geocodes.bad.address.new = DT.geo.point, location.source)
       }
     }
-    locs <- funUpdate.locs(address)
+    locs <- funUpdate.locs(address, match.threshold, pkg.data.root)
     check.ids <- funCheck.geocode.ids(locs, address)
   }
   return(locs)
 }
-
-funImport.location.intersect <- function(locs, address, location.source){
-  parcels.address <- funParcels.address()
-  outlines.address <- funOutlines.address()
-  points.address <- funPoints.address()
-  shapes.parcels <- funShapes.parcels() 
-  shapes.outlines <- funShapes.outlines()
-  
-  funCheck.ids <- function(locs, address, parcels.address=funParcels.address()){
+#' @title funImport.location.intersect
+#'
+#' @description intersect points to shapes
+#' @param locs assignment table
+#' @param address to be looked up
+#' @param pkg.data.root dropbox data root dir
+#' @param location.source data source
+#' @keywords assign location import
+#' @export
+#' @import stringr
+#'     data.table
+#'     methods.string
+#'     methods.shapes
+#'     points
+#'     parcels
+#'     pkg.data.paths
+#'     sp
+#'     tidyr
+#'     dplyr
+funImport.location.intersect <- function(locs, address, pkg.data.root, location.source){
+  pkg.name <- pkg.root <- point.id <- outline.id <- parcel.id <-address.id <- NULL
+  outlines.address <- parcels.address <- state <- zip <- NULL
+  location.id <- location.type <- cityStateZip <- city <- match.threshold <- NULL
+  l.address <- fun.l.address(pkg.data.root)
+  dt.pkg.data <- pkg.data.paths::dt(path.root = pkg.data.root)
+  shapes.parcels <- parcels::shapes(dt.pkg.data[pkg.name=='parcels']$pkg.root[1]) 
+  shapes.outlines <- outlines::shapes(dt.pkg.data[pkg.name=='outlines']$pkg.root[1])
+  funCheck.ids <- function(locs, address, pkg.data.root){
+    l.address <- fun.l.address(pkg.data.root)
     setkey(locs, address.id, location.id, location.type)
     locs <- unique(locs)
     check.ids <- list()
-    points.address <- funPoints.address()
+    points.address <- l.address$points
     locs.points <- locs[location.type=='points'][, .(address.id, point.id = location.id)]
     locs.outlines <- locs[location.type=='outlines'][, .(address.id, outline.id = location.id)]
     locs.parcels <- locs[location.type=='parcels'][, .(address.id, parcel.id = location.id)]
@@ -496,26 +584,24 @@ funImport.location.intersect <- function(locs, address, location.source){
     out <- unlist(lapply(no.match, function(x) length(unique(x$address.id))))
     out <- data.table(type=names(out), no.match=out)
     print(out)
-    
     return(locs.spread)
   }
-  
   # Global Overlays
   cat('Start Stats', sep='\n')
-  locs.spread <- funCheck.ids(locs, address, parcels.address)
+  locs.spread <- funCheck.ids(locs, address, pkg.data.root)
   cat(' ', sep='\n')
-  setnames(points.address, 'location.id', 'point.id')
-  setkey(points.address, point.id)
+  setnames(l.address$points, 'location.id', 'point.id')
+  setkey(l.address$points, point.id)
   
   # Overlay parcels
   locs.parcel <- unique(locs.spread[is.na(parcel.id)][,.(point.id)])
   setkey(locs.parcel, point.id)
-  locs.parcel <- points.address[locs.parcel]
+  locs.parcel <- l.address$points[locs.parcel]
   if (nrow(locs.parcel)>0){
-    DT.geocoded.shapes <- funShapes.coords2points(locs.parcel)
+    DT.geocoded.shapes <- methods.shapes::shapes.coords2points(locs.parcel)
     # Step 3: Update [outlines.address]
     print('Intersecting parcels...')
-    DT.points.parcels <- over(DT.geocoded.shapes, shapes.parcels)
+    DT.points.parcels <- sp::over(DT.geocoded.shapes, shapes.parcels)
     parcel.ids <-  DT.points.parcels$parcel.id
     DT.geo.parcels.intersect <- as.data.table(cbind(parcel.id=parcel.ids, locs.parcel))
     DT.geo.parcels <- DT.geo.parcels.intersect[is.na(parcel.id), parcel.id := 'no.match']
@@ -527,19 +613,19 @@ funImport.location.intersect <- function(locs, address, location.source){
       DT.geo.parcels.address.new <- DT.geo.parcels.address.new[, cityStateZip := paste0(city, ' ', state, ', ',zip)]
     }
     DT.geo.parcels.address.new <- DT.geo.parcels.address.new[, (col.names), with=FALSE]
-    parcels.address <- funParcels.address.update(parcels.address, DT.geo.parcels.address.new)
-    locs <- funUpdate.locs(address)
+    l.address$parcels <- parcels::address.update(pkg.data.root, l.address$parcels, DT.geo.parcels.address.new)
+    locs <- funUpdate.locs(address, match.threshold, pkg.data.root)
   }
   
   # Overlay outlines
   locs.outline <- unique(locs.spread[is.na(outline.id)][,.(point.id)])
   setkey(locs.outline, point.id)
-  locs.outline <- points.address[locs.outline]
+  locs.outline <- l.address$points[locs.outline]
   if (nrow(locs.outline)>0){
-    DT.geocoded.shapes <- funShapes.coords2points(locs.outline)
+    DT.geocoded.shapes <- methods.shapes::shapes.coords2points(locs.outline)
     # Step 3: Update [outlines.address]
     print('Intersecting outlines...')
-    DT.points.outlines <- over(DT.geocoded.shapes, shapes.outlines)
+    DT.points.outlines <- sp::over(DT.geocoded.shapes, shapes.outlines)
     outline.ids <-  DT.points.outlines$outline.id
     DT.geo.outlines.intersect <- as.data.table(cbind(outline.id=outline.ids, locs.outline))
     DT.geo.outlines <- DT.geo.outlines.intersect[is.na(outline.id), outline.id := 'no.match']
@@ -551,19 +637,19 @@ funImport.location.intersect <- function(locs, address, location.source){
       DT.geo.outlines.address.new <- DT.geo.outlines.address.new[, cityStateZip := paste0(city, ' ', state, ', ',zip)]
     }
     DT.geo.outlines.address.new <- DT.geo.outlines.address.new[, (col.names), with=FALSE]
-    outlines.address <- funOutlines.address.update(outlines.address, DT.geo.outlines.address.new)
-    locs <- funUpdate.locs(address)
+    l.address$outlines <- outlines::address.update(pkg.data.root, l.address$outlines, DT.geo.outlines.address.new)
+    locs <- funUpdate.locs(address, match.threshold, pkg.data.root)
   }
-  
-  check.ids <- funCheck.ids(locs, address)
+  check.ids <- funCheck.ids(locs, address, pkg.data.root)
   return(locs)
 }
 #' @title funUpdate.locs
 #'
 #' @description Assigns address to locations in last stage of import
 #' @param address data.table with all exploded address fields
-#' @param match.threshold string match qualityy
-#' @keywords parcels, clean, update, locations
+#' @param match.threshold string match quality
+#' @param pkg.data.root package path data
+#' @keywords parcels clean update locations
 #' @export
 #' @import stringr
 #'     data.table
@@ -571,15 +657,12 @@ funImport.location.intersect <- function(locs, address, location.source){
 #'     methods.string
 #'     parcels
 #'     outlines
-funUpdate.locs <- function(address, match.threshold, pkg.data.path, l.address){
+funUpdate.locs <- function(address, match.threshold, pkg.data.root){
+  street <- address.id <- address.id <- address.num.hi <- address.num.low <- state <- NULL
+  location.id <- NULL
   totals <- nrow(address)
   names(totals) <- 'possible'
-  paths <- 
-  parcels.address <- parcels::shapes(paste0())
-  parcels.address <- funParcels.address()
-  outlines.address <- funOutlines.address()
-  points.address <- funPoints.address()
-  geocodes.bad.address <- funGeocodes.bad.address()
+  l.address <- fun.l.address(pkg.data.root)
   l.locations <- list(parcels=list(type='parcels', address=l.address$parcels, match.threshold=match.threshold),
                       points=list(type='points', address=l.address$points, match.threshold=match.threshold),
                       outlines=list(type='outlines', address=l.address$outlines, match.threshold=match.threshold),
@@ -611,4 +694,26 @@ funUpdate.locs <- function(address, match.threshold, pkg.data.path, l.address){
     cat(sapply(l.missing, function(x) paste('address.id: ', x$address.id, '| street:', x$street)), sep='\n')
   }
   return(locs)
+}
+#' @title fun.l.address
+#'
+#' @description Assigns a list of addresses
+#' @param pkg.data.root dropbox root
+#' @keywords parcels, clean, update, locations, list
+#' @export
+#' @import stringr
+#'     data.table
+#'     methods.string
+#'     parcels
+#'     outlines
+#'     geocode
+#'     points
+fun.l.address <- function(pkg.data.root){
+  pkg.name <- NULL
+  dt.pkg.data <- pkg.data.paths::dt(pkg.data.root)
+  parcels.address <- parcels::address(dt.pkg.data[pkg.name=='parcels']$pkg.root[1])
+  outlines.address <- outlines::address(dt.pkg.data[pkg.name=='outlines']$pkg.root[1])
+  points.address <- points::address(dt.pkg.data[pkg.name=='points']$sys.path)
+  geocodes.bad.address <- geocode::geocodes.bad.address(pkg.data.root)
+  return(list(parcels=parcels.address, points=points.address, outlines=outlines.address, geocodes.bad=geocodes.bad.address))
 }
