@@ -37,8 +37,8 @@ funImport <- function(D, source='', match.threshold=0.6, l.study.extent=NULL,
   l <- list(); mgs.list <- list(); l$D <- D;
   l$source <- source; l$match.threshold<-match.threshold
   if (is.null(l.study.extent)){
-    dt.pkg.data <- pkg.data.paths::dt(pkg.data.root)
-    parcels.address <- parcels::address(dt.pkg.data[pkg.name=='parcels']$pkg.root[1])
+    dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, str.pkg.name = 'parcels')
+    parcels.address <- parcels::address(dt.pkg.data$pkg.root[1])
     l.study.extent <- list(cities=unique(parcels.address$city), zips = unique(parcels.address$zip),
                            states=unique(parcels.address$state))
   }
