@@ -237,7 +237,7 @@ funImport.address.ids <- function(x){
 #'     methods.string
 funImport.locations <- function(l, match.threshold, l.study.extent, pkg.data.root){
   file.name <- street <- zip <- city <- NULL
-  source(pkg.data.paths::dt(pkg.data.root)[file.name=='api.key.R']$sys.path)
+  source(paste0(pkg.data.root, '/private/api.key.R'))
   api.key <- api.key()
   address <- l$address
   address.ids <- address$address.id
@@ -414,8 +414,8 @@ funImport.location.geocode <- function(locs, address, pkg.data.root, api.key, l.
   geocode.n <- location.type <- city <- street <- NULL
   DT.geo <- match.threshold <- pkg.name <- cityStreetZip <- pkg.data.root <- NULL
   address.id <- NULL
-  dt.pkg.data <- pkg.data.paths::dt(path.root = pkg.data.root)
-  points.address <- points::address(dt.pkg.data[pkg.name=='points']$sys.path)
+  dt.pkg.data <- pkg.data.paths::paths(path.root = pkg.data.root, str.pkg.name = 'points')
+  points.address <- points::address(dt.pkg.data$sys.path)
   states.abbrev <- names(table(address$state))[table(address$state)/nrow(address) > 0.5 & names(table(address$state)) != ""]
   funCheck.geocode.ids <- function(locs, address){
     pkg.name <- location.type <- address.id <- address.address.id <- address.num.low <- NULL
@@ -548,9 +548,10 @@ funImport.location.intersect <- function(locs, address, pkg.data.root, location.
   outlines.address <- parcels.address <- state <- zip <- NULL
   location.id <- location.type <- cityStateZip <- city <- match.threshold <- NULL
   l.address <- fun.l.address(pkg.data.root)
-  dt.pkg.data <- pkg.data.paths::dt(path.root = pkg.data.root)
-  shapes.parcels <- parcels::shapes(dt.pkg.data[pkg.name=='parcels']$pkg.root[1]) 
-  shapes.outlines <- outlines::shapes(dt.pkg.data[pkg.name=='outlines']$pkg.root[1])
+  dt.pkg.data <- pkg.data.paths::paths(path.root = pkg.data.root, str.pkg.name = 'parcels')
+  shapes.parcels <- parcels::shapes(dt.pkg.data$pkg.root[1]) 
+  dt.pkg.data <- pkg.data.paths::paths(path.root = pkg.data.root, str.pkg.name = 'outlines')
+  shapes.outlines <- outlines::shapes(dt.pkg.data$pkg.root[1])
   funCheck.ids <- function(locs, address, pkg.data.root){
     l.address <- fun.l.address(pkg.data.root)
     setkey(locs, address.id, location.id, location.type)
@@ -710,10 +711,12 @@ funUpdate.locs <- function(address, match.threshold, pkg.data.root){
 #'     points
 fun.l.address <- function(pkg.data.root){
   pkg.name <- NULL
-  dt.pkg.data <- pkg.data.paths::dt(pkg.data.root)
-  parcels.address <- parcels::address(dt.pkg.data[pkg.name=='parcels']$pkg.root[1])
-  outlines.address <- outlines::address(dt.pkg.data[pkg.name=='outlines']$pkg.root[1])
-  points.address <- points::address(dt.pkg.data[pkg.name=='points']$sys.path)
+  dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, 'parcels')
+  parcels.address <- parcels::address(dt.pkg.data$pkg.root[1])
+  dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, 'outlines')
+  outlines.address <- outlines::address(dt.pkg.data$pkg.root[1])
+  dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, 'points')
+  points.address <- points::address(dt.pkg.data$sys.path)
   geocodes.bad.address <- geocode::geocodes.bad.address(pkg.data.root)
   return(list(parcels=parcels.address, points=points.address, outlines=outlines.address, geocodes.bad=geocodes.bad.address))
 }
