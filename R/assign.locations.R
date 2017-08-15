@@ -42,7 +42,6 @@ funImport <- function(D, source='', match.threshold=0.6, l.study.extent=NULL,
     l.study.extent <- list(cities=unique(parcels.address$city), zips = unique(parcels.address$zip),
                            states=unique(parcels.address$state))
   }
-  if (is.null(pkg.data.root)) stop(paste('No pkg.data.root defined'))
   # Generate checklis
   check <- funImport.check.list(l$D)
   # Break clean if any of these condtions are true
@@ -235,6 +234,7 @@ funImport.address.ids <- function(x){
 #' @import stringr
 #'     data.table
 #'     methods.string
+#'     api
 funImport.locations <- function(l, match.threshold, l.study.extent, pkg.data.root){
   file.name <- street <- zip <- city <- NULL
   source(paste0(pkg.data.root, '/private/api.key.R'))
@@ -709,8 +709,7 @@ funUpdate.locs <- function(address, match.threshold, pkg.data.root){
 #'     outlines
 #'     geocode
 #'     points
-fun.l.address <- function(pkg.data.root){
-  pkg.name <- NULL
+fun.l.address <- function(pkg.data.root=NULL){
   dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, 'parcels')
   parcels.address <- parcels::address(dt.pkg.data$pkg.root[1])
   dt.pkg.data <- pkg.data.paths::paths(pkg.data.root, 'outlines')
