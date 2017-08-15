@@ -234,11 +234,10 @@ funImport.address.ids <- function(x){
 #' @import stringr
 #'     data.table
 #'     methods.string
-#'     api
-funImport.locations <- function(l, match.threshold, l.study.extent, pkg.data.root){
+#'     api.keys
+funImport.locations <- function(l, match.threshold, l.study.extent, pkg.data.root = NULL){
   file.name <- street <- zip <- city <- NULL
-  source(paste0(pkg.data.root, '/private/api.key.R'))
-  api.key <- api.key()
+  api.key <- api.keys::import.key(str.api.name='google')
   address <- l$address
   address.ids <- address$address.id
   if (!(is.null(l.study.extent))){

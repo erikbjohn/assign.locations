@@ -9,25 +9,26 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Imports:
+    api.key,
+    pkg.data.paths,
+    methods.string,
+    methods.shapes,
+    parcels,
+    outlines,
+    geocode,
+    points,
     stringr,
     stringdist,
     tidyr, 
     utils,
     stats,
     data.table,
-    methods.string,
     foreign,
     rgdal,
     raster,
     rgeos,
-    methods.shapes,
     dplyr,
-    pkg.data.paths,
-    parcels,
-    outlines,
-    geocode,
-    sp,
-    points
+    sp
 RoxygenNote: 6.0.1.9000
 Suggests: knitr,
     rmarkdown
