@@ -89,7 +89,7 @@ funImport.check.list <- function(x){
   l$name.key <- ('name.key' %in% names(x))
   l$name.lic <- ('name.lic' %in% names(x))
   l$record.id <- ('record.id' %in% names(x))
-  l$address <- length(grep('(?i)address(?!.id)', names(x), value=TRUE, perl=TRUE))>0
+  l$address <- length(grep('(?i)(?=^)address(?!.id)', names(x), value=TRUE, perl=TRUE))>0
   return(l)
 }
 #' @title funImport.address
@@ -127,7 +127,7 @@ funImport.address <- function(x, lookup.address=NULL){
   if (check$city == FALSE|check$state==FALSE|check$zip==FALSE){
     if (check$cityStateZip==TRUE){
       cityStateZip <- methods.string::explode.cityStateZip(x)
-      if (check$city==FALSE) x$city <- cityStateZip$city
+        if (check$city==FALSE) x$city <- cityStateZip$city
       if (check$state==FALSE) x$state <- cityStateZip$state
       if (check$zip==FALSE) x$zip <- cityStateZip$zip
       x$cityStateZip <- NULL
